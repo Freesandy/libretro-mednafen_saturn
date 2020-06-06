@@ -538,7 +538,7 @@ struct retro_core_option_definition option_defs_us[] = {
 /* RETRO_LANGUAGE_CHINESE_TRADITIONAL */
 
 /* RETRO_LANGUAGE_CHINESE_SIMPLIFIED */
-struct retro_core_option_definition option_defs_us[] = {
+struct retro_core_option_definition option_defs_chs[] = {
    {
       "beetle_saturn_region",
       "系统区域",
