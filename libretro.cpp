@@ -1,5 +1,5 @@
 #include <stdarg.h>
-#include "mednafen/mednafen.h"
+#include "mednafen/git.h"
 #include "mednafen/mempatcher.h"
 #include "mednafen/git.h"
 #include "mednafen/general.h"
@@ -16,11 +16,16 @@
 #include "input.h"
 #include "disc.h"
 
-#include <mednafen/cdrom/cdromif.h>
-#include <mednafen/FileStream.h>
-#include <mednafen/hash/sha256.h>
+#include "mednafen/settings.h"
+#include "mednafen/cdrom/cdromif.h"
+#include "mednafen/FileStream.h"
+#include "mednafen/hash/sha256.h"
 #include "mednafen/hash/md5.h"
 #include "mednafen/ss/ss.h"
+
+/* Forward declarations */
+void MDFN_LoadGameCheats(void *override_ptr);
+void MDFN_FlushGameCheats(int nosave);
 
 static INLINE bool DBG_NeedCPUHooks(void) { return false; } // <-- replaces debug.inc
 
@@ -30,6 +35,36 @@ static INLINE bool DBG_NeedCPUHooks(void) { return false; } // <-- replaces debu
 #include <bitset>
 
 #include <zlib.h>
+
+struct retro_perf_callback perf_cb;
+retro_get_cpu_features_t perf_get_cpu_features_cb = NULL;
+retro_log_printf_t log_cb;
+static retro_audio_sample_t audio_cb;
+static retro_audio_sample_batch_t audio_batch_cb;
+static retro_input_poll_t input_poll_cb;
+static retro_input_state_t input_state_cb;
+static retro_environment_t environ_cb;
+
+
+void MDFN_DispMessage(const char *format, ...)
+{
+   va_list ap;
+   struct retro_message msg;
+   const char *strc = NULL;
+   char *str        = (char*)malloc(4096 * sizeof(char));
+
+   va_start(ap,format);
+
+   vsnprintf(str, 4096, format, ap);
+   va_end(ap);
+   strc       = str;
+
+   msg.frames = 180;
+   msg.msg    = strc;
+
+   environ_cb(RETRO_ENVIRONMENT_SET_MESSAGE, &msg);
+   free(str);
+}
 
 #define MEDNAFEN_CORE_NAME                   "Beetle Saturn"
 #define MEDNAFEN_CORE_VERSION                "v1.22.2"
@@ -42,15 +77,6 @@ static INLINE bool DBG_NeedCPUHooks(void) { return false; } // <-- replaces debu
 #define MEDNAFEN_CORE_GEOMETRY_MAX_H         576
 #define MEDNAFEN_CORE_GEOMETRY_ASPECT_RATIO  (4.0 / 3.0)
 #define FB_WIDTH                             MEDNAFEN_CORE_GEOMETRY_MAX_W
-
-struct retro_perf_callback perf_cb;
-retro_get_cpu_features_t perf_get_cpu_features_cb = NULL;
-retro_log_printf_t log_cb;
-static retro_audio_sample_t audio_cb;
-static retro_audio_sample_batch_t audio_batch_cb;
-static retro_input_poll_t input_poll_cb;
-static retro_input_state_t input_state_cb;
-static retro_environment_t environ_cb;
 
 static unsigned frame_count = 0;
 static unsigned internal_frame_count = 0;
@@ -70,15 +96,15 @@ static bool is_pal = false;
 // display_internal_framerate is true.
 #define INTERNAL_FPS_SAMPLE_PERIOD 32
 
-char retro_save_directory[4096];
-char retro_base_directory[4096];
 static char retro_cd_base_directory[4096];
 static char retro_cd_path[4096];
-char retro_cd_base_name[4096];
+extern "C" char retro_cd_base_name[4096];
+extern "C" char retro_save_directory[4096];
+extern "C" char retro_base_directory[4096];
 #ifdef _WIN32
-   static char retro_slash = '\\';
+static char retro_slash = '\\';
 #else
-   static char retro_slash = '/';
+static char retro_slash = '/';
 #endif
 
 static bool libretro_supports_bitmasks = false;
@@ -830,10 +856,10 @@ static sscpu_timestamp_t MidSync(const sscpu_timestamp_t timestamp)
     // (which is not a problem in and of itself, but it's preferable to keep settings from altering emulation behavior when they don't need to).
     //
     //printf("MidSync: %d\n", VDP2::PeekLine());
-    {
+    //{
 //       espec->SoundBufSize += SOUND_FlushOutput();
 //       espec->MasterCycles = timestamp * cur_clock_div;
-    }
+    //}
     //printf("%d\n", espec->SoundBufSize);
 
     SMPC_UpdateOutput();
@@ -1011,11 +1037,11 @@ static bool InitCommon(const unsigned cpucache_emumode, const unsigned cart_type
    const char* name;
   } CPUCacheEmuModes[] =
   {
-   { CPUCACHE_EMUMODE_DATA_CB,   _("Data only, with high-level bypass") },
-   { CPUCACHE_EMUMODE_DATA,   _("Data only") },
-   { CPUCACHE_EMUMODE_FULL,   _("Full") },
+   { CPUCACHE_EMUMODE_DATA_CB,   "Data only, with high-level bypass" },
+   { CPUCACHE_EMUMODE_DATA,   "Data only" },
+   { CPUCACHE_EMUMODE_FULL,   "Full" },
   };
-  const char* cem = _("Unknown");
+  const char* cem = "Unknown";
 
   for(auto const& ceme : CPUCacheEmuModes)
   {
@@ -1038,8 +1064,8 @@ static bool InitCommon(const unsigned cpucache_emumode, const unsigned cart_type
          { CART_EXTRAM_4M, "4MiB Extended RAM" },
          { CART_KOF95, "King of Fighters '95 ROM" },
          { CART_ULTRAMAN, "Ultraman ROM" },
-         { CART_CS1RAM_16M, _("16MiB CS1 RAM") },
-         { CART_NLMODEM, _("Netlink Modem") },
+         { CART_CS1RAM_16M, "16MiB CS1 RAM" },
+         { CART_NLMODEM, "Netlink Modem" },
          { CART_MDFN_DEBUG, "Mednafen Debug" }
       };
       const char* cn = nullptr;
@@ -1076,7 +1102,7 @@ static bool InitCommon(const unsigned cpucache_emumode, const unsigned cart_type
 
    // Call InitFastMemMap() before functions like SOUND_Init()
    InitFastMemMap();
-   SS_SetPhysMemMap(0x00000000, 0x000FFFFF, BIOSROM, sizeof(BIOSROM));
+   SS_SetPhysMemMap(0x00000000, 0x000FFFFF, BIOSROM, sizeof(BIOSROM), false);
    SS_SetPhysMemMap(0x00200000, 0x003FFFFF, WorkRAML, WORKRAM_BANK_SIZE_BYTES, true);
    SS_SetPhysMemMap(0x06000000, 0x07FFFFFF, WorkRAMH, WORKRAM_BANK_SIZE_BYTES, true);
    MDFNMP_RegSearchable(0x00200000, WORKRAM_BANK_SIZE_BYTES);
@@ -1521,69 +1547,6 @@ MDFN_COLD int LibRetro_StateAction( StateMem* sm, const unsigned load, const boo
    return 1;
 }
 
-static const MDFNSetting_EnumList RTCLang_List[] =
-{
- { "english", SMPC_RTC_LANG_ENGLISH, "English" },
- { "german", SMPC_RTC_LANG_GERMAN, "Deutsch" },
- { "french", SMPC_RTC_LANG_FRENCH, "Français" },
- { "spanish", SMPC_RTC_LANG_SPANISH, "Español" },
- { "italian", SMPC_RTC_LANG_ITALIAN, "Italiano" },
- { "japanese", SMPC_RTC_LANG_JAPANESE, "日本語" },
-
- { "deutsch", SMPC_RTC_LANG_GERMAN, NULL },
- { "français", SMPC_RTC_LANG_FRENCH, NULL },
- { "español", SMPC_RTC_LANG_SPANISH, NULL },
- { "italiano", SMPC_RTC_LANG_ITALIAN, NULL },
- { "日本語", SMPC_RTC_LANG_JAPANESE, NULL},
-
- { NULL, 0 },
-};
-
-static MDFNSetting SSSettings[] =
-{
- { "ss.scsp.resamp_quality", MDFNSF_NOFLAGS, "SCSP output resampler quality.",
-   "0 is lowest quality and CPU usage, 10 is highest quality and CPU usage.  The resampler that this setting refers to is used for converting from 44.1KHz to the sampling rate of the host audio device Mednafen is using.  Changing Mednafen's output rate, via the \"sound.rate\" setting, to \"44100\" may bypass the resampler, which can decrease CPU usage by Mednafen, and can increase or decrease audio quality, depending on various operating system and hardware factors.", MDFNST_UINT, "4", "0", "10" },
-
- { "ss.input.port1.gun_chairs",  MDFNSF_NOFLAGS, "Crosshairs color for lightgun on virtual port 1.",  "A value of 0x1000000 disables crosshair drawing.", MDFNST_UINT, "0xFF0000", "0x000000", "0x1000000" },
- { "ss.input.port2.gun_chairs",  MDFNSF_NOFLAGS, "Crosshairs color for lightgun on virtual port 2.",  "A value of 0x1000000 disables crosshair drawing.", MDFNST_UINT, "0x00FF00", "0x000000", "0x1000000" },
- { "ss.input.port3.gun_chairs",  MDFNSF_NOFLAGS, "Crosshairs color for lightgun on virtual port 3.",  "A value of 0x1000000 disables crosshair drawing.", MDFNST_UINT, "0xFF00FF", "0x000000", "0x1000000" },
- { "ss.input.port4.gun_chairs",  MDFNSF_NOFLAGS, "Crosshairs color for lightgun on virtual port 4.",  "A value of 0x1000000 disables crosshair drawing.", MDFNST_UINT, "0xFF8000", "0x000000", "0x1000000" },
- { "ss.input.port5.gun_chairs",  MDFNSF_NOFLAGS, "Crosshairs color for lightgun on virtual port 5.",  "A value of 0x1000000 disables crosshair drawing.", MDFNST_UINT, "0xFFFF00", "0x000000", "0x1000000" },
- { "ss.input.port6.gun_chairs",  MDFNSF_NOFLAGS, "Crosshairs color for lightgun on virtual port 6.",  "A value of 0x1000000 disables crosshair drawing.", MDFNST_UINT, "0x00FFFF", "0x000000", "0x1000000" },
- { "ss.input.port7.gun_chairs",  MDFNSF_NOFLAGS, "Crosshairs color for lightgun on virtual port 7.",  "A value of 0x1000000 disables crosshair drawing.", MDFNST_UINT, "0x0080FF", "0x000000", "0x1000000" },
- { "ss.input.port8.gun_chairs",  MDFNSF_NOFLAGS, "Crosshairs color for lightgun on virtual port 8.",  "A value of 0x1000000 disables crosshair drawing.", MDFNST_UINT, "0x8000FF", "0x000000", "0x1000000" },
- { "ss.input.port9.gun_chairs",  MDFNSF_NOFLAGS, "Crosshairs color for lightgun on virtual port 9.",  "A value of 0x1000000 disables crosshair drawing.", MDFNST_UINT, "0xFF80FF", "0x000000", "0x1000000" },
- { "ss.input.port10.gun_chairs", MDFNSF_NOFLAGS, "Crosshairs color for lightgun on virtual port 10.", "A value of 0x1000000 disables crosshair drawing.", MDFNST_UINT, "0x00FF80", "0x000000", "0x1000000" },
- { "ss.input.port11.gun_chairs", MDFNSF_NOFLAGS, "Crosshairs color for lightgun on virtual port 11.", "A value of 0x1000000 disables crosshair drawing.", MDFNST_UINT, "0x8080FF", "0x000000", "0x1000000" },
- { "ss.input.port12.gun_chairs", MDFNSF_NOFLAGS, "Crosshairs color for lightgun on virtual port 12.", "A value of 0x1000000 disables crosshair drawing.", MDFNST_UINT, "0xFF8080", "0x000000", "0x1000000" },
-
-
-
- { "ss.smpc.autortc", MDFNSF_NOFLAGS, "Automatically set RTC on game load.", "Automatically set the SMPC's emulated Real-Time Clock to the host system's current time and date upon game load.", MDFNST_BOOL, "1" },
- { "ss.smpc.autortc.lang", MDFNSF_NOFLAGS, "BIOS language.", NULL, MDFNST_ENUM, "english", NULL, NULL, NULL, NULL, RTCLang_List },
-
- { "ss.cart.kof95_path", MDFNSF_EMU_STATE, "Path to KoF 95 ROM image.", NULL, MDFNST_STRING, "mpr-18811-mx.ic1" },
- { "ss.cart.ultraman_path", MDFNSF_EMU_STATE, "Path to Ultraman ROM image.", NULL, MDFNST_STRING, "mpr-19367-mx.ic1" },
- { "ss.cart.satar4mp_path", MDFNSF_EMU_STATE | MDFNSF_SUPPRESS_DOC | MDFNSF_NONPERSISTENT, "Path to Action Replay 4M Plus firmware image.", NULL, MDFNST_STRING, "satar4mp.bin" },
-
- // { "ss.cart.modem_port", MDFNSF_NOFLAGS, "TCP/IP port to use for modem emulation.", "A value of \"0\" disables network access.", MDFNST_UINT, "4920", "0", "65535" },
-
- { "ss.bios_sanity", MDFNSF_NOFLAGS, "Enable BIOS ROM image sanity checks.", NULL, MDFNST_BOOL, "1" },
-
- { "ss.slstart", MDFNSF_NOFLAGS, "First displayed scanline in NTSC mode.", NULL, MDFNST_INT, "0", "0", "239" },
- { "ss.slend", MDFNSF_NOFLAGS, "Last displayed scanline in NTSC mode.", NULL, MDFNST_INT, "239", "0", "239" },
-
- { "ss.slstartp", MDFNSF_NOFLAGS, "First displayed scanline in PAL mode.", NULL, MDFNST_INT, "0", "-16", "271" },
- { "ss.slendp", MDFNSF_NOFLAGS, "Last displayed scanline in PAL mode.", NULL, MDFNST_INT, "255", "-16", "271" },
-
-#ifdef MDFN_SS_DEV_BUILD
- { "ss.dbg_mask", MDFNSF_NOFLAGS, "Debug printf mask.", NULL, MDFNST_UINT, "0x00001", "0x00000", "0xFFFFF" },
- { "ss.dbg_exe_cdpath", MDFNSF_SUPPRESS_DOC, "CD image to use with homebrew executable loading.", NULL, MDFNST_STRING, "" },
-#endif
-
- { NULL },
-};
-
 static const CheatInfoStruct CheatInfo =
 {
  NULL,
@@ -1599,7 +1562,6 @@ static const CheatInfoStruct CheatInfo =
 
 MDFNGI EmulatedSS =
 {
-   SSSettings,
    0,
    0,
 
@@ -1674,9 +1636,7 @@ void retro_init(void)
    const char *dir = NULL;
 
    if (environ_cb(RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY, &dir) && dir)
-   {
-      snprintf(retro_base_directory, sizeof(retro_base_directory), "%s", dir);
-   }
+      strlcpy(retro_base_directory, dir, sizeof(retro_base_directory));
    else
    {
       /* TODO: Add proper fallback */
@@ -1688,15 +1648,15 @@ void retro_init(void)
    {
       // If save directory is defined use it, otherwise use system directory
       if (dir)
-         snprintf(retro_save_directory, sizeof(retro_save_directory), "%s", dir);
+         strlcpy(retro_save_directory, dir, sizeof(retro_save_directory));
       else
-         snprintf(retro_save_directory, sizeof(retro_save_directory), "%s", retro_base_directory);
+         strlcpy(retro_save_directory, retro_base_directory, sizeof(retro_save_directory));
    }
    else
    {
       /* TODO: Add proper fallback */
       log_cb(RETRO_LOG_WARN, "Save directory is not defined. Fallback on using SYSTEM directory ...\n");
-      snprintf(retro_save_directory, sizeof(retro_save_directory), "%s", retro_base_directory);
+      strlcpy(retro_save_directory, retro_base_directory, sizeof(retro_save_directory));
    }
 
    disc_init( environ_cb );
@@ -2088,9 +2048,9 @@ bool retro_load_game(const struct retro_game_info *info)
    snprintf(tocbasepath, sizeof(tocbasepath), "%s%c%s.toc", retro_cd_base_directory, retro_slash, retro_cd_base_name);
 
    if (!strstr(tocbasepath, "cdrom://") && filestream_exists(tocbasepath))
-      snprintf(retro_cd_path, sizeof(retro_cd_path), "%s", tocbasepath);
+      strlcpy(retro_cd_path, tocbasepath, sizeof(retro_cd_path));
    else
-      snprintf(retro_cd_path, sizeof(retro_cd_path), "%s", info->path);
+      strlcpy(retro_cd_path, info->path, sizeof(retro_cd_path));
 
    check_variables(true);
    //make sure shared memory cards and save states are enabled only at startup
@@ -2178,13 +2138,10 @@ void retro_run(void)
    static int32 rects[MEDNAFEN_CORE_GEOMETRY_MAX_H];
    rects[0] = ~0;
 
-   static int16_t sound_buf[0x10000];
    EmulateSpecStruct spec = {0};
    spec.surface = surf;
    spec.SoundRate = 44100;
-   spec.SoundBuf = sound_buf;
    spec.LineWidths = rects;
-   spec.SoundBufMaxSize = sizeof(sound_buf) / 2;
    spec.SoundVolume = 1.0;
    spec.soundmultiplier = 1.0;
    spec.SoundBufSize = 0;
@@ -2493,22 +2450,3 @@ void MDFND_DispMessage(unsigned char *str)
    environ_cb(RETRO_ENVIRONMENT_SET_MESSAGE, &msg);
 }
 
-void MDFN_DispMessage(const char *format, ...)
-{
-   va_list ap;
-   struct retro_message msg;
-   const char *strc = NULL;
-   char *str        = (char*)malloc(4096 * sizeof(char));
-
-   va_start(ap,format);
-
-   vsnprintf(str, 4096, format, ap);
-   va_end(ap);
-   strc       = str;
-
-   msg.frames = 180;
-   msg.msg    = strc;
-
-   environ_cb(RETRO_ENVIRONMENT_SET_MESSAGE, &msg);
-   free(str);
-}

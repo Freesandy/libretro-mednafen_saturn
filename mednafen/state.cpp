@@ -15,19 +15,33 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
+#include <stdio.h>
 #include <string.h>
 
 #include <boolean.h>
 #include <map>
 
-#include "mednafen.h"
-#include "driver.h"
-#include "general.h"
-#include "state.h"
-#include "video.h"
 #include <compat/msvc.h>
 
+#include "git.h"
+#include "general.h"
+#include "mednafen-endian.h"
+#include "state.h"
+
 #define RLSB 		MDFNSTATE_RLSB	//0x80000000
+
+static int read32le(uint32_t *Bufo, FILE *fp)
+{
+   uint32_t buf;
+   if(fread(&buf,1,4,fp)<4)
+      return 0;
+#ifdef MSB_FIRST
+   *(uint32_t*)Bufo=((buf&0xFF)<<24)|((buf&0xFF00)<<8)|((buf&0xFF0000)>>8)|((buf&0xFF000000)>>24);
+#else
+   *(uint32_t*)Bufo=buf;
+#endif
+   return 1;
+}
 
 int32_t smem_read(StateMem *st, void *buffer, uint32_t len)
 {

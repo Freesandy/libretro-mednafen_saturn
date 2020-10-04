@@ -6,13 +6,9 @@
 #include <vector>
 #include <libretro.h>
 
-#include "video.h"
-
-typedef struct
-{
- const char *extension; // Example ".nes"
- const char *description; // Example "iNES Format ROM Image"
-} FileExtensionSpecStruct;
+#include "mednafen-types.h"
+#include "video/surface.h"
+#include "state.h"
 
 enum
 {
@@ -38,9 +34,6 @@ typedef enum
  GMT_ARCADE,	// VS Unisystem, PC-10...
  GMT_PLAYER	// Music player(NSF, HES, GSF)
 } GameMediumTypes;
-
-#include "state.h"
-#include "settings-common.h"
 
 #ifdef WANT_DEBUGGER
 // #ifdef WANT_DEBUGGER
@@ -379,15 +372,6 @@ typedef struct
 	// Sound rate.  Set by driver side.
 	double SoundRate;
 
-	// Pointer to sound buffer, set by the driver code, that the emulation code should render sound to.
-	// Guaranteed to be at least 500ms in length, but emulation code really shouldn't exceed 40ms or so.  Additionally, if emulation code
-	// generates >= 100ms, 
-	// DEPRECATED: Emulation code may set this pointer to a sound buffer internal to the emulation module.
-	int16 *SoundBuf;
-
-	// Maximum size of the sound buffer, in frames.  Set by the driver code.
-	int32 SoundBufMaxSize;
-
 	// Number of frames currently in internal sound buffer.  Set by the system emulation code, to be read by the driver code.
 	int32 SoundBufSize;
 	int32 SoundBufSizeALMS;	// SoundBufSize value at last MidSync(), 0
@@ -489,8 +473,6 @@ struct CustomPalette_Spec
 
 typedef struct
 {
- const MDFNSetting *Settings;
-
  // Time base for EmulateSpecStruct::MasterCycles
  // MasterClock must be >= MDFN_MASTERCLOCK_FIXED(1.0)
  // All or part of the fractional component may be ignored in some timekeeping operations in the emulator to prevent integer overflow,
@@ -533,11 +515,6 @@ typedef struct
  int rotated;
 
    uint8_t MD5[16];
-   uint8_t GameSetMD5[16];	/* A unique ID for the game set this CD belongs to, only used in PC-FX emulation. */
-   bool GameSetMD5Valid; /* True if GameSetMD5 is valid. */
-
-   uint8_t StateMD5[16];	// ID to use in save state naming and netplay session IDs, if
-   bool StateMD5Valid;	// StateMD5Valid is true(useful for systems with multiple BIOS revisions, e.g. PS1).
 
    int soundrate;  /* For Ogg Vorbis expansion sound wacky support.  0 for default. */
 
@@ -545,8 +522,6 @@ typedef struct
  GameMediumTypes GameType;	// Deprecated.
 
  RMD_Layout* RMD;
-
- const char *cspecial;  /* Special cart expansion: DIP switches, barcode reader, etc. */
 
  std::vector<const char *>DesiredInput; // Desired input device for the input ports, NULL for don't care
 

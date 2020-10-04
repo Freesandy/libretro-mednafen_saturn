@@ -68,19 +68,8 @@
  enum { ss_dbg_mask = 0 };
 #endif
 
- static INLINE void SS_DBG_Dummy(const char* format, ...) { }
-
-#ifndef _MSC_VER
-#ifdef HAVE_DEBUG
-#define SS_DBG(which, format, ...) ((MDFN_UNLIKELY(ss_dbg_mask & (which))) ? (void)trio_printf(format, ## __VA_ARGS__) : SS_DBG_Dummy(format, ## __VA_ARGS__))
-#else
-#define SS_DBG(which, format, ...) SS_DBG_Dummy(format, ## __VA_ARGS__)
-#endif
-#define SS_DBGTI(which, format, ...) SS_DBG(which, format " @Line=0x%03x, HPos=0x%03x\n", ## __VA_ARGS__, VDP2::PeekLine(), VDP2::PeekHPos())
-#else
-#define SS_DBG(which, format, ...) SS_DBG_Dummy(format)
+#define SS_DBG(which, format, ...)
 #define SS_DBGTI SS_DBG
-#endif
 
  template<unsigned which>
  static void SS_DBG_Wrap(const char* format, ...) noexcept
@@ -156,7 +145,7 @@ typedef sscpu_timestamp_t (*ss_event_handler)(const sscpu_timestamp_t timestamp)
  // (length is in units of bytes, not 16-bit units)
  //
  // is_writeable is mostly for cheat stuff.
- void SS_SetPhysMemMap(uint32 Astart, uint32 Aend, uint16* ptr, uint32 length, bool is_writeable = false);
+ void SS_SetPhysMemMap(uint32 Astart, uint32 Aend, uint16* ptr, uint32 length, bool is_writeable);
 
  void SS_Reset(bool powering_up) MDFN_COLD;
 

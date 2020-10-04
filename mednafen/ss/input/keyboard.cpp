@@ -44,7 +44,8 @@
 #include "common.h"
 #include "keyboard.h"
 
-#include "../math_ops.h"
+#include "../../mednafen-endian.h"
+#include "../../math_ops.h"
 
 IODevice_Keyboard::IODevice_Keyboard() : phys{0,0,0,0}
 {
@@ -183,7 +184,7 @@ void IODevice_Keyboard::StateAction(StateMem* sm, const unsigned load, const boo
   SFEND
  };
  char section_name[64];
- trio_snprintf(section_name, sizeof(section_name), "%s_Keyboard", sname_prefix);
+ snprintf(section_name, sizeof(section_name), "%s_Keyboard", sname_prefix);
 
  if(!MDFNSS_StateAction(sm, load, data_only, StateRegs, section_name, true) && load)
   Power();
@@ -278,8 +279,8 @@ uint8 IODevice_Keyboard::UpdateBus(const sscpu_timestamp_t timestamp, const uint
 
 static const IDIIS_StatusState Lock_SS[] =
 {
- { "off", gettext_noop("Off") },
- { "on", gettext_noop("On") },
+ { "off", "Off" },
+ { "on", "On" },
 };
 
 const IDIISG IODevice_Keyboard_US101_IDII =

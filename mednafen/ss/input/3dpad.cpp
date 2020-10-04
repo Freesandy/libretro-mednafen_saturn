@@ -19,6 +19,7 @@
 ** 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 */
 
+#include "../../mednafen-endian.h"
 #include "common.h"
 #include "3dpad.h"
 
@@ -89,7 +90,7 @@ void IODevice_3DPad::StateAction(StateMem* sm, const unsigned load, const bool d
   SFEND
  };
  char section_name[64];
- trio_snprintf(section_name, sizeof(section_name), "%s_3DPad", sname_prefix);
+ snprintf(section_name, sizeof(section_name), "%s_3DPad", sname_prefix);
 
  if(!MDFNSS_StateAction(sm, load, data_only, StateRegs, section_name, true) && load)
   Power();
@@ -168,8 +169,8 @@ uint8 IODevice_3DPad::UpdateBus(const sscpu_timestamp_t timestamp, const uint8 s
 
 static const IDIIS_SwitchPos ModeSwitchPositions[] =
 {
- { "digital", gettext_noop("Digital(+)") },
- { "analog", gettext_noop("Analog(○)"), gettext_noop("Analog mode is not compatible with all games.  For some compatible games, analog mode reportedly must be enabled before the game boots up for the game to recognize it properly.") },
+ { "digital", "Digital(+)" },
+ { "analog", "Analog(○)", "Analog mode is not compatible with all games.  For some compatible games, analog mode reportedly must be enabled before the game boots up for the game to recognize it properly." },
 };
 
 IDIISG IODevice_3DPad_IDII =

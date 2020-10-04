@@ -1,9 +1,9 @@
 #ifndef __MDFN_ENDIAN_H
 #define __MDFN_ENDIAN_H
 
-#include <stdio.h>
 #include <stdint.h>
 #include <retro_inline.h>
+#include <retro_miscellaneous.h>
 #include "mednafen-types.h"
 
 #if 0
@@ -56,7 +56,6 @@
 extern "C" {
 #endif
 
-int read32le(uint32_t *Bufo, FILE *fp);
 void Endian_A16_Swap(void *src, uint32_t nelements);
 void Endian_A32_Swap(void *src, uint32_t nelements);
 void Endian_A64_Swap(void *src, uint32_t nelements);
@@ -65,8 +64,6 @@ void Endian_A16_LE_to_NE(void *src, uint32_t nelements);
 void Endian_A16_BE_to_NE(void *src, uint32_t nelements);
 void Endian_A32_LE_to_NE(void *src, uint32_t nelements);
 void Endian_A64_LE_to_NE(void *src, uint32_t nelements);
-
-void FlipByteOrder(uint8_t *src, uint32_t count);
 
 #if defined(__cplusplus)
 }
@@ -264,7 +261,7 @@ static INLINE uintptr_t neX_ptr_be(uintptr_t const base, const size_t byte_offse
 #ifdef MSB_FIRST
  return base + (byte_offset &~ (sizeof(T) - 1));
 #else
- return base + (((byte_offset &~ (sizeof(T) - 1)) ^ (sizeof(X) - std::min<size_t>(sizeof(X), sizeof(T)))));
+ return base + (((byte_offset &~ (sizeof(T) - 1)) ^ (sizeof(X) - MIN(sizeof(X), sizeof(T)))));
 #endif
 }
 
@@ -274,7 +271,7 @@ static INLINE uintptr_t neX_ptr_le(uintptr_t const base, const size_t byte_offse
 #ifdef LSB_FIRST
  return base + (byte_offset &~ (sizeof(T) - 1));
 #else
- return base + (((byte_offset &~ (sizeof(T) - 1)) ^ (sizeof(X) - std::min<size_t>(sizeof(X), sizeof(T)))));
+ return base + (((byte_offset &~ (sizeof(T) - 1)) ^ (sizeof(X) - MIN(sizeof(X), sizeof(T)))));
 #endif
 }
 
